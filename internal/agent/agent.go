@@ -1765,6 +1765,7 @@ func (a *Agent) executeGroupPlanPhase(ctx context.Context, g FileGroup, concaten
 	reqCtx := llm.WithRequestMeta(ctx, a.newRequestMeta(gk, session.PlanTask, rec.RequestNo))
 
 	_, llmSpan := telemetry.StartLLMSpan(ctx, a.args.Model)
+	telemetry.RecordLLMInput(llmSpan, a.session.SessionID, a.args.Model, messages)
 	resp, err := a.args.LLMClient.CompletionsWithCtx(reqCtx, llm.ChatRequest{
 		Model:     a.args.Model,
 		Messages:  messages,
@@ -1784,6 +1785,7 @@ func (a *Agent) executeGroupPlanPhase(ctx context.Context, g FileGroup, concaten
 		totalTokens = resp.Usage.TotalTokens
 	}
 	telemetry.RecordLLMResult(llmSpan, duration, totalTokens, nil)
+	telemetry.RecordLLMOutput(llmSpan, resp.Content(), nil, resp.ReasoningContent(), resp.Usage)
 	llmSpan.End()
 	rec.SetResponse(resp, duration)
 	a.runner.RecordUsage(resp.Usage)
@@ -1861,6 +1863,7 @@ func (a *Agent) executeGroupReviewFilter(ctx context.Context, g FileGroup, from 
 	reqCtx := llm.WithRequestMeta(ctx, a.newRequestMeta(groupKey, session.ReviewFilterTask, rec.RequestNo))
 
 	_, llmSpan := telemetry.StartLLMSpan(ctx, a.args.Model)
+	telemetry.RecordLLMInput(llmSpan, a.session.SessionID, a.args.Model, messages)
 	resp, err := a.args.LLMClient.CompletionsWithCtx(reqCtx, llm.ChatRequest{
 		Model:     a.args.Model,
 		Messages:  messages,
@@ -1882,6 +1885,7 @@ func (a *Agent) executeGroupReviewFilter(ctx context.Context, g FileGroup, from 
 		totalTokens = resp.Usage.TotalTokens
 	}
 	telemetry.RecordLLMResult(llmSpan, duration, totalTokens, nil)
+	telemetry.RecordLLMOutput(llmSpan, resp.Content(), resp.ToolCalls(), resp.ReasoningContent(), resp.Usage)
 	llmSpan.End()
 	rec.SetResponse(resp, duration)
 	a.runner.RecordUsage(resp.Usage)

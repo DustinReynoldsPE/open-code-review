@@ -26,7 +26,9 @@ func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) 
 	if !IsEnabled() {
 		return ctx, trace.SpanFromContext(ctx)
 	}
-	return getTracer().Start(ctx, name, opts...)
+	ctx, span := getTracer().Start(ctx, name, opts...)
+	applyTraceAttrs(span)
+	return ctx, span
 }
 
 // ContextWithTraceParentFromEnv extracts W3C traceparent from the TRACEPARENT
