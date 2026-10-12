@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -75,6 +76,9 @@ func TestSpanContentEnabled(t *testing.T) {
 	if got := a["langfuse.session.id"]; got != "sess-cfg" {
 		t.Errorf("expected configured session to win, got %q", got)
 	}
+	if got := a["langfuse.tags"]; got != `["a","b"]` {
+		t.Errorf("expected tags as string array, got %q", got)
+	}
 	if got := a["langfuse.observation.type"]; got != `tool` {
 		t.Errorf("expected tool type, got %q", got)
 	}
@@ -89,5 +93,39 @@ func TestSpanContentSessionFallback(t *testing.T) {
 	span.End()
 	if got := attrs(sr)["langfuse.session.id"]; got != "sess-rt" {
 		t.Errorf("expected runtime session fallback, got %q", got)
+	}
+}
+
+func TestRuntimeSessionPropagatesToSpans(t *testing.T) {
+	t.Setenv("OCR_TRACE_CONTENT", "1")
+	setupEnabledTelemetry(t)
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	ctx, llmSpan := StartLLMSpan(context.Background(), "m1")
+	RecordLLMInput(llmSpan, "sess-rt", "m1", nil)
+	llmSpan.End()
+
+	_, toolSpan := StartToolSpan(ctx, "file_read")
+	toolSpan.End()
+
+	found := false
+	for _, s := range sr.Ended() {
+		if s.Name() != "tool.execute.file_read" {
+			continue
+		}
+		found = true
+		for _, a := range s.Attributes() {
+			if a.Key == "langfuse.session.id" && a.Value.AsString() == "sess-rt" {
+				return
+			}
+		}
+		t.Error("tool span missing langfuse.session.id")
+	}
+	if !found {
+		t.Fatal("tool span not recorded")
 	}
 }

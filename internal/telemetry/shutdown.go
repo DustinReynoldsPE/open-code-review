@@ -25,6 +25,8 @@ func Shutdown(ctx context.Context) error {
 	}
 
 	shutdownFuncs = nil
+	activeCfg.Store(nil)
+	runtimeSession.Store(nil)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("telemetry shutdown: %v", errs)

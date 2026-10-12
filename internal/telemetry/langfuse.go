@@ -5,32 +5,58 @@ package telemetry
 
 import (
 	"encoding/json"
+	"strings"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/alibaba/open-code-review/internal/llm"
 )
 
+// activeCfg is the config resolved once by Init. It is nil only when
+// telemetry state was set without Init (tests), in which case helpers fall
+// back to resolving from the environment per call.
+var activeCfg atomic.Pointer[Config]
+
+// runtimeSession holds the session ID learned from the first LLM request so
+// non-LLM spans can share it when OCR_TRACE_SESSION is not pinned.
+var runtimeSession atomic.Pointer[string]
+
+// resolvedConfig returns the config captured at Init, or a live resolve when
+// Init never ran.
+func resolvedConfig() Config {
+	if cfg := activeCfg.Load(); cfg != nil {
+		return *cfg
+	}
+	return ResolveConfig("")
+}
+
 // applyTraceAttrs stamps the configured OCR_TRACE_* attributes on every span.
 // Langfuse accepts trace-level attributes (name, session, release,
 // environment, tags) from any span in the trace, so applying them broadly is
 // the simplest way to keep them consistent.
 func applyTraceAttrs(span trace.Span) {
-	cfg := ResolveConfig("")
+	cfg := resolvedConfig()
 	if cfg.TraceName != "" {
 		SetAttr(span, "langfuse.trace.name", cfg.TraceName)
 	}
 	if cfg.TraceEnv != "" {
 		SetAttr(span, "langfuse.environment", cfg.TraceEnv)
 	}
-	if cfg.TraceSession != "" {
-		SetAttr(span, "langfuse.session.id", cfg.TraceSession)
+	session := cfg.TraceSession
+	if session == "" {
+		if v := runtimeSession.Load(); v != nil {
+			session = *v
+		}
+	}
+	if session != "" {
+		SetAttr(span, "langfuse.session.id", session)
 	}
 	if cfg.TraceRelease != "" {
 		SetAttr(span, "langfuse.release", cfg.TraceRelease)
 	}
 	if cfg.TraceTags != "" {
-		SetAttr(span, "langfuse.tags", cfg.TraceTags)
+		SetAttr(span, "langfuse.tags", strings.Split(cfg.TraceTags, ","))
 	}
 }
 
@@ -41,7 +67,7 @@ func SpanContentEnabled() bool {
 	if !IsEnabled() {
 		return false
 	}
-	return ResolveConfig("").SpanContent
+	return resolvedConfig().SpanContent
 }
 
 func setJSONAttr(span trace.Span, key string, v any) {
@@ -64,7 +90,8 @@ func RecordLLMInput(span trace.Span, sessionID, model string, input any) {
 	SetAttr(span, "langfuse.observation.type", "generation")
 	SetAttr(span, "langfuse.observation.model.name", model)
 	SetAttr(span, "gen_ai.request.model", model)
-	if sessionID != "" && ResolveConfig("").TraceSession == "" {
+	if sessionID != "" && resolvedConfig().TraceSession == "" {
+		runtimeSession.Store(&sessionID)
 		SetAttr(span, "langfuse.session.id", sessionID)
 	}
 	setJSONAttr(span, "langfuse.observation.input", input)

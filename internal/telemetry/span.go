@@ -80,6 +80,8 @@ func SetAttr(span trace.Span, key string, value interface{}) {
 		span.SetAttributes(attribute.Bool(key, v))
 	case float64:
 		span.SetAttributes(attribute.Float64(key, v))
+	case []string:
+		span.SetAttributes(attribute.StringSlice(key, v))
 	default:
 		span.SetAttributes(attribute.String(key, ""))
 	}
