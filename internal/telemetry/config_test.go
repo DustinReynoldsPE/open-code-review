@@ -86,11 +86,26 @@ func TestResolveEnv(t *testing.T) {
 			},
 		},
 		{
+			name: "otlp headers parsed",
+			envs: map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "authorization=Basic abc123, x-custom = v2 "},
+			check: func(t *testing.T, cfg Config) {
+				if cfg.OTLPHeaders["authorization"] != "Basic abc123" {
+					t.Errorf("expected authorization header, got %v", cfg.OTLPHeaders)
+				}
+				if cfg.OTLPHeaders["x-custom"] != "v2" {
+					t.Errorf("expected x-custom=v2, got %v", cfg.OTLPHeaders)
+				}
+			},
+		},
+		{
 			name: "no env vars leaves defaults",
 			envs: map[string]string{},
 			check: func(t *testing.T, cfg Config) {
 				if cfg.Enabled {
 					t.Error("expected Enabled=false")
+				}
+				if len(cfg.OTLPHeaders) != 0 {
+					t.Errorf("expected no headers, got %v", cfg.OTLPHeaders)
 				}
 			},
 		},
@@ -102,7 +117,7 @@ func TestResolveEnv(t *testing.T) {
 			envKeys := []string{
 				"OCR_ENABLE_TELEMETRY", "OTEL_SERVICE_NAME",
 				"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_PROTOCOL",
-				"OCR_CONTENT_LOGGING",
+				"OTEL_EXPORTER_OTLP_HEADERS", "OCR_CONTENT_LOGGING",
 			}
 			for _, k := range envKeys {
 				t.Setenv(k, "")

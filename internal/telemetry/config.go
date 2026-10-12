@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -20,12 +21,13 @@ const (
 
 // Config holds resolved telemetry configuration.
 type Config struct {
-	Enabled      bool   // Master switch; false when OCR_ENABLE_TELEMETRY is unset
-	ServiceName  string // Service name in traces/metrics
-	Exporter     string // "console" or "otlp"
-	OTLPEndpoint string // OTLP collector address (grpc/http)
-	OTLPProtocol string // "grpc", "http/protobuf", "http/json"
-	ContentLog   bool   // Include prompt/response content in log events
+	Enabled      bool              // Master switch; false when OCR_ENABLE_TELEMETRY is unset
+	ServiceName  string            // Service name in traces/metrics
+	Exporter     string            // "console" or "otlp"
+	OTLPEndpoint string            // OTLP collector address (grpc/http)
+	OTLPProtocol string            // "grpc", "http/protobuf", "http/json"
+	OTLPHeaders  map[string]string // OTLP request headers (OTEL_EXPORTER_OTLP_HEADERS)
+	ContentLog   bool              // Include prompt/response content in log events
 }
 
 // DefaultConfig returns a disabled default configuration.
@@ -56,9 +58,25 @@ func resolveEnv(cfg *Config) {
 	if v := os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL"); v != "" {
 		cfg.OTLPProtocol = v
 	}
+	if v := os.Getenv("OTEL_EXPORTER_OTLP_HEADERS"); v != "" {
+		cfg.OTLPHeaders = parseOTLPHeaders(v)
+	}
 	if os.Getenv("OCR_CONTENT_LOGGING") == "1" {
 		cfg.ContentLog = true
 	}
+}
+
+// parseOTLPHeaders parses the OTEL_EXPORTER_OTLP_HEADERS format: a
+// comma-separated list of key=value pairs, e.g. "authorization=Basic abc,x-h=1".
+func parseOTLPHeaders(s string) map[string]string {
+	headers := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(pair, "=")
+		if k = strings.TrimSpace(k); ok && k != "" {
+			headers[k] = strings.TrimSpace(v)
+		}
+	}
+	return headers
 }
 
 // telemetrySection matches the telemetry key in ~/.opencodereview/config.json.
