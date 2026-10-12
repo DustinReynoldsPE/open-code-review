@@ -98,6 +98,18 @@ func TestResolveEnv(t *testing.T) {
 			},
 		},
 		{
+			name: "otlp headers url-decoded",
+			envs: map[string]string{"OTEL_EXPORTER_OTLP_HEADERS": "authorization=Basic%20abc%2B123,x-list=a%2Cb"},
+			check: func(t *testing.T, cfg Config) {
+				if cfg.OTLPHeaders["authorization"] != "Basic abc+123" {
+					t.Errorf("expected decoded 'Basic abc+123', got %q", cfg.OTLPHeaders["authorization"])
+				}
+				if cfg.OTLPHeaders["x-list"] != "a,b" {
+					t.Errorf("expected decoded 'a,b', got %q", cfg.OTLPHeaders["x-list"])
+				}
+			},
+		},
+		{
 			name: "no env vars leaves defaults",
 			envs: map[string]string{},
 			check: func(t *testing.T, cfg Config) {

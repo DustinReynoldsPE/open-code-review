@@ -7,6 +7,7 @@ package telemetry
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,12 +69,22 @@ func resolveEnv(cfg *Config) {
 
 // parseOTLPHeaders parses the OTEL_EXPORTER_OTLP_HEADERS format: a
 // comma-separated list of key=value pairs, e.g. "authorization=Basic abc,x-h=1".
+// Per the OTel spec keys and values are URL-encoded — a literal comma inside a
+// value arrives as %2C, so splitting on raw commas is safe and both sides get
+// decoded. PathUnescape (not QueryUnescape): base64 credentials may contain
+// '+', which QueryUnescape would silently turn into a space.
 func parseOTLPHeaders(s string) map[string]string {
 	headers := make(map[string]string)
 	for _, pair := range strings.Split(s, ",") {
 		k, v, ok := strings.Cut(pair, "=")
 		if k = strings.TrimSpace(k); ok && k != "" {
-			headers[k] = strings.TrimSpace(v)
+			if dk, err := url.PathUnescape(k); err == nil {
+				k = dk
+			}
+			if dv, err := url.PathUnescape(strings.TrimSpace(v)); err == nil {
+				v = dv
+			}
+			headers[k] = v
 		}
 	}
 	return headers
