@@ -27,7 +27,7 @@ func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) 
 		return ctx, trace.SpanFromContext(ctx)
 	}
 	ctx, span := getTracer().Start(ctx, name, opts...)
-	applyTraceAttrs(span)
+	applyTraceAttrs(ctx, span)
 	return ctx, span
 }
 

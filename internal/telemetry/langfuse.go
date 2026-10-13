@@ -4,6 +4,7 @@
 package telemetry
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"sync/atomic"
@@ -18,9 +19,24 @@ import (
 // back to resolving from the environment per call.
 var activeCfg atomic.Pointer[Config]
 
-// runtimeSession holds the session ID learned from the first LLM request so
-// non-LLM spans can share it when OCR_TRACE_SESSION is not pinned.
-var runtimeSession atomic.Pointer[string]
+// sessionIDCtxKey carries the Langfuse session ID down to every span started
+// under a review conversation. Concurrent subtasks each scope their own
+// context, so per-run session IDs never share mutable global state.
+type sessionIDCtxKey struct{}
+
+// WithSessionID returns a context whose descendants stamp sessionID as
+// langfuse.session.id on their spans when OCR_TRACE_SESSION does not pin one.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	if sessionID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionIDCtxKey{}, sessionID)
+}
+
+func sessionIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(sessionIDCtxKey{}).(string)
+	return v
+}
 
 // resolvedConfig returns the config captured at Init, or a live resolve when
 // Init never ran.
@@ -35,7 +51,7 @@ func resolvedConfig() Config {
 // Langfuse accepts trace-level attributes (name, session, release,
 // environment, tags) from any span in the trace, so applying them broadly is
 // the simplest way to keep them consistent.
-func applyTraceAttrs(span trace.Span) {
+func applyTraceAttrs(ctx context.Context, span trace.Span) {
 	cfg := resolvedConfig()
 	if cfg.TraceName != "" {
 		SetAttr(span, "langfuse.trace.name", cfg.TraceName)
@@ -45,9 +61,7 @@ func applyTraceAttrs(span trace.Span) {
 	}
 	session := cfg.TraceSession
 	if session == "" {
-		if v := runtimeSession.Load(); v != nil {
-			session = *v
-		}
+		session = sessionIDFromContext(ctx)
 	}
 	if session != "" {
 		SetAttr(span, "langfuse.session.id", session)
@@ -81,8 +95,10 @@ func setJSONAttr(span trace.Span, key string, v any) {
 }
 
 // RecordLLMInput marks an llm.request span as a Langfuse generation and
-// attaches the outgoing messages as its input. sessionID is used as
-// langfuse.session.id only when OCR_TRACE_SESSION does not pin one.
+// attaches the outgoing messages as its input. sessionID stamps
+// langfuse.session.id on this span only when OCR_TRACE_SESSION does not pin
+// one; callers that need the ID on sibling spans should carry it on the
+// context via WithSessionID.
 func RecordLLMInput(span trace.Span, sessionID, model string, input any) {
 	if span == nil || !SpanContentEnabled() {
 		return
@@ -91,7 +107,6 @@ func RecordLLMInput(span trace.Span, sessionID, model string, input any) {
 	SetAttr(span, "langfuse.observation.model.name", model)
 	SetAttr(span, "gen_ai.request.model", model)
 	if sessionID != "" && resolvedConfig().TraceSession == "" {
-		runtimeSession.Store(&sessionID)
 		SetAttr(span, "langfuse.session.id", sessionID)
 	}
 	setJSONAttr(span, "langfuse.observation.input", input)

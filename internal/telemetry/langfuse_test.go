@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -58,7 +59,7 @@ func TestSpanContentEnabled(t *testing.T) {
 		"thinking", &llm.UsageInfo{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CacheReadTokens: 3})
 	RecordToolInput(span, map[string]any{"path": "x.go"})
 	RecordToolOutput(span, "result")
-	applyTraceAttrs(span)
+	applyTraceAttrs(context.Background(), span)
 	span.End()
 
 	a := attrs(sr)
@@ -105,7 +106,8 @@ func TestRuntimeSessionPropagatesToSpans(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
-	ctx, llmSpan := StartLLMSpan(context.Background(), "m1")
+	ctx := WithSessionID(context.Background(), "sess-rt")
+	_, llmSpan := StartLLMSpan(ctx, "m1")
 	RecordLLMInput(llmSpan, "sess-rt", "m1", nil)
 	llmSpan.End()
 
@@ -127,5 +129,53 @@ func TestRuntimeSessionPropagatesToSpans(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("tool span not recorded")
+	}
+}
+
+// Two conversations running in parallel must each keep their own session ID:
+// a regression test for the shared-global race where one subtask's session
+// overwrote another's and attached tool spans to the wrong session.
+func TestConcurrentSessionsDoNotBleed(t *testing.T) {
+	t.Setenv("OCR_TRACE_CONTENT", "1")
+	setupEnabledTelemetry(t)
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	var wg sync.WaitGroup
+	for _, sess := range []string{"sess-a", "sess-b"} {
+		wg.Add(1)
+		go func(sess string) {
+			defer wg.Done()
+			ctx := WithSessionID(context.Background(), sess)
+			_, llmSpan := StartLLMSpan(ctx, "m1")
+			RecordLLMInput(llmSpan, sess, "m1", nil)
+			llmSpan.End()
+			_, toolSpan := StartToolSpan(ctx, "file_read")
+			toolSpan.End()
+		}(sess)
+	}
+	wg.Wait()
+
+	perSession := map[string]int{}
+	for _, s := range sr.Ended() {
+		var sid string
+		for _, a := range s.Attributes() {
+			if a.Key == "langfuse.session.id" {
+				sid = a.Value.AsString()
+			}
+		}
+		if sid != "sess-a" && sid != "sess-b" {
+			t.Errorf("span %q carries unexpected session %q", s.Name(), sid)
+			continue
+		}
+		perSession[sid]++
+	}
+	for _, sess := range []string{"sess-a", "sess-b"} {
+		if perSession[sess] != 2 {
+			t.Errorf("expected 2 spans under %q, got %d", sess, perSession[sess])
+		}
 	}
 }

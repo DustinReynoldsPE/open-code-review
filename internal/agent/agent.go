@@ -286,6 +286,7 @@ func (a *Agent) Run(ctx context.Context) ([]model.LlmComment, error) {
 	// Each task conversation (plan, per-group main loop, compression, ...) refines it with llm.SessionTaskKey where it starts,
 	// so affinity keys stay per-conversation, the granularity provider prompt caches actually reuse prefixes at.
 	ctx = llm.ContextWithSessionKey(ctx, a.SessionID())
+	ctx = telemetry.WithSessionID(ctx, a.SessionID())
 
 	// Step 1: Parse diffs
 	ctx, diffSpan := telemetry.StartSpan(ctx, "diff.parse")

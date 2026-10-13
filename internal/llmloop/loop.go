@@ -383,6 +383,10 @@ func (r *Runner) RunMainTask(ctx context.Context, messages []llm.Message, taskKe
 	const maxConsecutiveEmptyRounds = 3
 	consecutiveEmptyRounds := 0
 	sessionID := uuid.NewString()
+	// Carry the per-run Langfuse session on the context so every span in this
+	// conversation — LLM rounds, grace round, tool calls — reports the same ID
+	// without racing other conversations through shared state.
+	ctx = telemetry.WithSessionID(ctx, sessionID)
 
 	// Async compression is owned by this conversation alone; the deferred
 	// cancel aborts any job still in flight when the conversation ends.

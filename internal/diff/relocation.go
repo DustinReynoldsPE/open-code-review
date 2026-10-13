@@ -79,7 +79,7 @@ func ReLocateComment(
 		totalTokens = resp.Usage.TotalTokens
 	}
 	telemetry.RecordLLMResult(llmSpan, duration, totalTokens, nil)
-	telemetry.RecordLLMOutput(llmSpan, resp.Content(), nil, resp.ReasoningContent(), resp.Usage)
+	telemetry.RecordLLMOutput(llmSpan, resp.VisibleContent(), nil, resp.ReasoningContent(), resp.Usage)
 	llmSpan.End()
 
 	code := extractCodeBlock(resp.Content())
